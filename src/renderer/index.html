@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    />
+    <title>CodeBuddy 积分悬浮窗</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- 未登录遮罩 -->
+    <div id="login-mask" class="mask hidden">
+      <div class="mask-card">
+        <div class="logo">CB</div>
+        <h2>CodeBuddy 积分悬浮窗</h2>
+        <p class="desc">登录 CodeBuddy 后即可查看积分使用情况</p>
+        <button id="btn-login" class="btn primary">微信扫码登录</button>
+        <button id="btn-login-open" class="btn ghost" style="display: none">
+          在新窗口完成登录
+        </button>
+        <p class="hint">点击「微信扫码登录」后，请在弹出的登录窗口中使用微信扫码</p>
+      </div>
+    </div>
+
+    <!-- 主界面 -->
+    <div id="app" class="app hidden">
+      <!-- 标题栏（可拖拽） -->
+      <header class="titlebar drag">
+        <div class="brand">
+          <span class="logo-mini">CB</span>
+          <span>积分使用情况</span>
+        </div>
+        <div class="actions no-drag">
+          <button id="btn-refresh" class="icon-btn" title="刷新">⟳</button>
+          <button id="btn-top" class="icon-btn" title="置顶">📌</button>
+          <!-- 透明度调节 -->
+          <button id="btn-opacity" class="icon-btn" title="调整透明度">◐</button>
+          <button id="btn-close" class="icon-btn" title="退出">✕</button>
+        </div>
+      </header>
+
+      <!-- 透明度调节条 -->
+      <div id="opacity-panel" class="opacity-panel hidden">
+        <span class="opacity-label">透明度</span>
+        <input id="opacity-slider" type="range" min="40" max="100" value="100" />
+        <span id="opacity-value" class="opacity-value">100%</span>
+      </div>
+
+      <!-- 汇总卡片 -->
+      <section class="summary">
+        <div class="sum-item">
+          <span class="sum-label">本月请求</span>
+          <span id="sum-requests" class="sum-value">-</span>
+        </div>
+        <div class="sum-item">
+          <span class="sum-label">本月积分</span>
+          <span id="sum-credits" class="sum-value">-</span>
+        </div>
+      </section>
+
+      <!-- 数据列表 -->
+      <main class="list-wrap">
+        <ul id="usage-list" class="usage-list"></ul>
+      </main>
+
+      <footer class="foot">
+        <span id="foot-status">加载中...</span>
+        <span class="foot-right">
+          <span id="foot-time" class="time"></span>
+          <button id="btn-logout" class="logout-btn" title="清除登录状态并退出登录">退出登录</button>
+        </span>
+      </footer>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

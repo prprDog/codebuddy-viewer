@@ -1,0 +1,33 @@
+# ===== 依赖 =====
+node_modules/
+
+# ===== 构建输出 =====
+dist/
+*.exe
+
+# ===== 日志 =====
+*.log
+
+# ===== AI 生成/中间产物 =====
+generated-images/
+
+# ===== 临时分析与调试脚本 =====
+/config.js
+/index.js
+/debug-api.js
+/test-api.js
+/test-electron-fetch.js
+/test-rcedit.js
+/extract-icon.js
+/verify-*.js
+/seticon.js
+/gen-tray-icon.js
+/t-min.bat
+/test-*.js
+
+# ===== 操作系统 / 编辑器 =====
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/

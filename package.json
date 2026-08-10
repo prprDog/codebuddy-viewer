@@ -1,0 +1,49 @@
+{
+  "name": "codebuddy-credit-widget",
+  "version": "1.0.0",
+  "description": "CodeBuddy 积分使用情况桌面悬浮列表组件（Win11）",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "build:portable": "electron-builder --win portable"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.codebuddy.creditwidget",
+    "productName": "CodeBuddy积分悬浮窗",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "src/assets/icon.png",
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "CodeBuddy积分悬浮窗"
+    },
+    "portable": {
+      "artifactName": "CodeBuddy积分悬浮窗-${version}-portable.${ext}"
+    },
+    "electronDownload": {
+      "mirror": "https://npmmirror.com/mirrors/electron/"
+    }
+  }
+}
