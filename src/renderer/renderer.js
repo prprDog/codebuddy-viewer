@@ -110,19 +110,21 @@ function renderList(list) {
 async function loadData() {
   setStatus('加载中...');
   try {
-    const res = await api.fetchUsage({ pageSize: 30 });
+    const res = await api.fetchUsage();
     const reqUsage = res.requestUsage || {};
 
     // 接口返回结构：{ code, data: { total, data: [...] } }
-    // 真正的明细数组在 reqUsage.data.data，总条数在 reqUsage.data.total
-    const data = (reqUsage.data && Array.isArray(reqUsage.data.data)) ? reqUsage.data.data : [];
-    const total = (reqUsage.data && reqUsage.data.total) || 0;
+    // reqUsage.data.data 为主进程分页拉取的全部明细，用于积分统计
+    const all = (reqUsage.data && Array.isArray(reqUsage.data.data)) ? reqUsage.data.data : [];
+    const total = (reqUsage.data && reqUsage.data.total) || all.length || 0;
 
-    // 汇总
-    el.sumRequests.textContent = String(total || data.length || 0);
-    const totalCredit = data.reduce((s, it) => s + (Number(it.credit) || 0), 0);
+    // 汇总（基于全量数据统计，避免分页遗漏）
+    el.sumRequests.textContent = String(total || 0);
+    const totalCredit = all.reduce((s, it) => s + (Number(it.credit) || 0), 0);
     el.sumCredits.textContent = totalCredit.toFixed(1);
-    renderList(data);
+
+    // 列表只显示最近 30 条（接口按时间倒序，前 30 即最新）
+    renderList(all.slice(0, 30));
 
     // 登录失效判断
     if (reqUsage.code === 401 || reqUsage.status === 401) {

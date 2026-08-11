@@ -366,21 +366,58 @@ ipcMain.handle('auth:logout', async () => {
   return true;
 });
 
+// 分页拉取某时间范围的积分使用明细（接口单页最多 100 条，循环翻页直到拉全）
+async function fetchAllUsage(range) {
+  const PAGE_SIZE = 100; // 接口单页上限
+  const MAX_PAGES = 200; // 安全上限（防死循环）
+  const all = [];
+  let total = 0;
+  let pageNum = 1;
+
+  while (pageNum <= MAX_PAGES) {
+    const res = await callApi(API_GET_USER_REQUEST_USAGE, {
+      startTime: range.startTime,
+      endTime: range.endTime,
+      pageNum,
+      pageSize: PAGE_SIZE,
+    });
+
+    // 鉴权失败 / 接口错误直接返回
+    if (res.code === 401 || res.status === 401) {
+      return { code: 401, msg: '登录已失效，请重新登录', status: 401 };
+    }
+    if (res.code !== 0) {
+      return res;
+    }
+
+    const data = (res.data && Array.isArray(res.data.data)) ? res.data.data : [];
+    total = (res.data && res.data.total) || 0;
+    all.push(...data);
+
+    // 已拉完所有数据
+    if (data.length === 0 || all.length >= total) break;
+    pageNum++;
+  }
+
+  return {
+    code: 0,
+    msg: 'OK',
+    data: { total, data: all },
+  };
+}
+
 ipcMain.handle('usage:fetch', async (event, options = {}) => {
   const range = monthRange();
-  const payload = {
+
+  // 1) 分页拉取本月全部请求明细（用于积分统计）
+  const requestUsage = await fetchAllUsage({
     startTime: options.startTime || range.startTime,
     endTime: options.endTime || range.endTime,
-    pageNum: options.pageNum || 1,
-    pageSize: options.pageSize || 20,
-  };
-
-  // 1) 请求明细
-  const requestUsage = await callApi(API_GET_USER_REQUEST_USAGE, payload);
+  });
   // 2) 每日用量（汇总）
   const dailyUsage = await callApi(API_GET_USER_DAILY_USAGE, {
-    startTime: payload.startTime,
-    endTime: payload.endTime,
+    startTime: options.startTime || range.startTime,
+    endTime: options.endTime || range.endTime,
   });
   // 3) 积分资源余额
   const resource = await callApi(API_GET_USER_RESOURCE, {});
