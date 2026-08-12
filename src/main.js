@@ -7,7 +7,7 @@
  *  - 捕获并持久化登录后的会话 cookie
  *  - 调用 CodeBuddy 积分用量 API
  */
-const { app, BrowserWindow, ipcMain, session, Menu, Tray, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, Tray, nativeImage, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -62,6 +62,92 @@ function hasSessionCookies(cookies) {
 let mainWindow = null;
 let loginWindow = null;
 let tray = null;
+
+// ---------- 窗口位置/大小记忆 ----------
+const WINDOW_STATE_FILE = () => path.join(app.getPath('userData'), 'window-state.json');
+
+// 读取上次保存的窗口位置
+function loadWindowState() {
+  try {
+    const raw = fs.readFileSync(WINDOW_STATE_FILE(), 'utf-8');
+    const s = JSON.parse(raw);
+    if (typeof s.x === 'number' && typeof s.y === 'number') {
+      return { x: s.x, y: s.y, width: s.width, height: s.height };
+    }
+  } catch (e) {
+    /* 无记录或损坏，忽略 */
+  }
+  return null;
+}
+
+// 保存当前窗口位置
+function saveWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const [x, y] = mainWindow.getPosition();
+  const [width, height] = mainWindow.getSize();
+  try {
+    fs.mkdirSync(app.getPath('userData'), { recursive: true });
+    fs.writeFileSync(
+      WINDOW_STATE_FILE(),
+      JSON.stringify({ x, y, width, height, savedAt: new Date().toISOString() }, null, 2),
+      'utf-8'
+    );
+  } catch (e) {
+    console.error('[main] 保存窗口位置失败:', e.message);
+  }
+}
+
+// 防抖保存（拖拽过程连续触发，避免频繁写盘）
+let saveStateTimer = null;
+function scheduleSaveWindowState() {
+  clearTimeout(saveStateTimer);
+  saveStateTimer = setTimeout(saveWindowState, 300);
+}
+
+// 校验窗口是否位于某个屏幕可见区域内（防止拔掉外接屏后窗口"消失"）
+function isOnVisibleScreen(x, y, width, height) {
+  const displays = screen.getAllDisplays();
+  return displays.some((d) => {
+    const wa = d.workArea;
+    // 窗口至少 40px 与某个屏幕工作区相交
+    const overlapX = Math.min(x + width, wa.x + wa.width) - Math.max(x, wa.x);
+    const overlapY = Math.min(y + height, wa.y + wa.height) - Math.max(y, wa.y);
+    return overlapX >= 40 && overlapY >= 40;
+  });
+}
+
+// 计算创建窗口时应使用的初始位置
+function getInitialWindowPosition(width, height) {
+  const saved = loadWindowState();
+  if (saved && isOnVisibleScreen(saved.x, saved.y, width, height)) {
+    return { x: saved.x, y: saved.y };
+  }
+  // 无记录或不在可见区域内 -> 屏幕中央
+  const cursor = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursor);
+  const { x, y, width: waW, height: waH } = display.workArea;
+  return {
+    x: Math.round(x + (waW - width) / 2),
+    y: Math.round(y + (waH - height) / 2),
+  };
+}
+
+// 计算创建窗口时应使用的尺寸（记住上次大小；异常值时回落默认）
+function getInitialWindowSize() {
+  const saved = loadWindowState();
+  if (
+    saved &&
+    typeof saved.width === 'number' &&
+    typeof saved.height === 'number' &&
+    saved.width >= WIN_MIN_WIDTH &&
+    saved.width <= WIN_MAX_WIDTH &&
+    saved.height >= WIN_MIN_HEIGHT &&
+    saved.height <= WIN_MAX_HEIGHT
+  ) {
+    return { width: Math.round(saved.width), height: Math.round(saved.height) };
+  }
+  return { width: WIN_WIDTH, height: WIN_HEIGHT };
+}
 
 // 应用图标路径（PNG 资源，打包后位于 asar 内）
 function getAppIconPath() {
@@ -124,15 +210,33 @@ function toggleMainWindow() {
   }
 }
 
+// 默认窗口尺寸（等比例缩放基于此比例）
+const WIN_WIDTH = 360; // 默认宽度
+const WIN_HEIGHT = 560; // 默认高度
+const WIN_ASPECT = WIN_WIDTH / WIN_HEIGHT; // 固定宽高比 9:14（等比例拉伸）
+const WIN_MIN_WIDTH = 280;
+const WIN_MIN_HEIGHT = 436; // 与最小宽度保持相同宽高比（280 / 0.642857 ≈ 436）
+const WIN_MAX_WIDTH = 900;
+const WIN_MAX_HEIGHT = 1400; // 与最大宽度保持相同宽高比（900 / 0.642857 ≈ 1400）
+
 function createMainWindow() {
+  const size = getInitialWindowSize();
+  const pos = getInitialWindowPosition(size.width, size.height);
+
   mainWindow = new BrowserWindow({
-    width: 360,
-    height: 560,
+    width: size.width,
+    height: size.height,
+    x: pos.x,
+    y: pos.y,
     frame: false,
     transparent: true,
     // 默认不置顶：避免弹出登录窗口时被悬浮窗遮挡
     alwaysOnTop: false,
-    resizable: false,
+    resizable: true, // 允许拉伸
+    minWidth: WIN_MIN_WIDTH,
+    minHeight: WIN_MIN_HEIGHT,
+    maxWidth: WIN_MAX_WIDTH,
+    maxHeight: WIN_MAX_HEIGHT,
     skipTaskbar: true,
     hasShadow: false,
     icon: getAppIcon(),
@@ -143,8 +247,23 @@ function createMainWindow() {
     },
   });
 
+  // 等比例拉伸：用户拖动窗口边缘时保持 9:14 宽高比
+  mainWindow.setAspectRatio(WIN_ASPECT);
+
   // 在多桌面/全屏时可见（不改变置顶状态）
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+  // 拖拽结束后保存窗口位置（Windows 上 moved 事件在移动完成后触发）
+  mainWindow.on('moved', scheduleSaveWindowState);
+  // 兜底：移动过程中也保存（部分平台可能只触发 move 而非 moved）
+  mainWindow.on('move', scheduleSaveWindowState);
+  // 拉伸结束保存尺寸
+  mainWindow.on('resize', scheduleSaveWindowState);
+  // 关闭/隐藏前立即同步保存（不依赖防抖定时器）
+  mainWindow.on('close', () => {
+    clearTimeout(saveStateTimer);
+    saveWindowState();
+  });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   mainWindow.on('closed', () => {
@@ -459,4 +578,9 @@ app.whenReady().then(() => {
 // 悬浮窗关闭（隐藏）后保持后台运行，通过托盘退出
 app.on('window-all-closed', (e) => {
   // 不主动退出，保持托盘后台运行
+});
+
+app.on('before-quit', () => {
+  // 退出前保存窗口位置与大小
+  saveWindowState();
 });
