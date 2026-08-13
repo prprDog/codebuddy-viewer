@@ -4,6 +4,9 @@ node_modules/
 # ===== 构建输出 =====
 dist/
 *.exe
+# 构建辅助资源：仅保留 build/icon.ico（CI 嵌入 exe 图标用）
+build/*
+!build/icon.ico
 
 # ===== 日志 =====
 *.log

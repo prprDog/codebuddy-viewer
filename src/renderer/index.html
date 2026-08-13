@@ -35,11 +35,35 @@
         <div class="actions no-drag">
           <button id="btn-refresh" class="icon-btn" title="刷新">⟳</button>
           <button id="btn-top" class="icon-btn" title="置顶">📌</button>
+          <!-- 代理设置 -->
+          <button id="btn-proxy" class="icon-btn" title="代理设置">🌐</button>
           <!-- 透明度调节 -->
           <button id="btn-opacity" class="icon-btn" title="调整透明度">◐</button>
           <button id="btn-close" class="icon-btn" title="退出">✕</button>
         </div>
       </header>
+
+      <!-- 代理设置面板 -->
+      <div id="proxy-panel" class="proxy-panel hidden">
+        <div class="proxy-row">
+          <span class="proxy-label">代理</span>
+          <input
+            id="proxy-input"
+            type="text"
+            class="proxy-input"
+            placeholder="http://127.0.0.1:7890"
+            spellcheck="false"
+          />
+        </div>
+        <div class="proxy-row">
+          <button id="proxy-test" class="mini-btn">测试连接</button>
+          <button id="proxy-save" class="mini-btn primary">保存</button>
+          <span id="proxy-status" class="proxy-status"></span>
+        </div>
+        <div class="proxy-hint">
+          无法直连时在此填写代理地址（如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080）。留空保存则自动检测系统代理。
+        </div>
+      </div>
 
       <!-- 透明度调节条 -->
       <div id="opacity-panel" class="opacity-panel hidden">

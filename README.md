@@ -1,16 +1,18 @@
 # CodeBuddy 积分使用管理系统 - 桌面悬浮列表组件（Win11）
 
-一个基于 Electron 的 Windows 11 桌面悬浮组件，用于实时展示 CodeBuddy 账户的积分（credit）使用情况。窗口呈**半透明磨砂效果**、**始终置顶**（不被其他程序遮挡）、可拖拽、可隐藏到系统托盘。
+一个基于 Electron 的 Windows 11 桌面悬浮组件，用于实时展示 CodeBuddy 账户的积分（credit）使用情况。窗口呈**半透明磨砂效果**、**可一键置顶**、可拖拽、可等比例缩放、可隐藏到系统托盘。
 
 ## 功能特性
 
 - **半透明悬浮窗**：磨砂玻璃质感（`backdrop-filter` 模糊 + 渐变半透明背景）。
 - **等比缩放**：窗口可拉伸（拖动窗口边缘），并始终保持固定宽高比（默认 9:14，最小 280×436，最大 900×1400）。
 - **记住位置与大小**：自动记录并恢复窗口位置与尺寸，拔掉外接屏等场景下自动校验屏幕可见性，避免窗口"消失"。
-- **始终置顶**：默认置顶显示，不会被其他窗口遮挡；可一键切换置顶状态（📌）。
+- **置顶开关**：默认不置顶（避免遮挡弹出登录窗口）；点击 📌 一键切换置顶状态。
 - **积分实时展示**：调用 CodeBuddy 官方接口获取本月积分使用明细、每日用量、积分余额。
+- **代理支持**：无法直连 CodeBuddy 域名时（如被网络策略拦截），可自动检测系统代理或在悬浮窗内手动配置代理（HTTP / SOCKS5），登录窗口与数据接口请求统一走代理。
 - **完整登录集成**：内嵌 CodeBuddy 官方登录页，复用其**微信扫码登录**体系，登录后自动捕获会话并持久化，无需重复登录。
 - **托盘常驻**：关闭悬浮窗后隐藏到系统托盘，随时可重新唤出；右键托盘图标可退出。
+- **单例运行**：通过 `app.requestSingleInstanceLock()` 保证同一时间只有一个实例；重复双击 exe 不会多开，而是唤起已运行实例的悬浮窗。
 - **自动刷新**：每 60 秒自动刷新数据，也可手动点击刷新（⟳）。
 
 ## 环境要求
@@ -51,11 +53,31 @@ npm start
 | 图标 | 功能 |
 |------|------|
 | ⟳ | 手动刷新积分数据 |
-| 📌 | 切换「始终置顶」（高亮=置顶中） |
+| 📌 | 切换「置顶」（高亮=置顶中） |
+| 🌐 | 打开/关闭代理设置面板 |
+| ◐ | 打开/关闭透明度调节条 |
 | ✕（左键） | 隐藏到系统托盘 |
 | ✕（右键） | 彻底退出应用 |
 | 标题栏拖拽 | 移动悬浮窗位置 |
 | 窗口边缘拖拽 | 等比缩放窗口大小（保持 9:14 宽高比） |
+
+### 代理设置（无法直连 / 需代理访问时）
+
+若所在网络无法直接访问 CodeBuddy 域名（浏览器开代理能访问、但程序连不上时），按以下任一方式让程序走代理：
+
+1. **开启系统代理**（推荐）：在代理工具（Clash 等）中开启「系统代理」，程序启动时会自动检测并应用到所有请求。
+2. **应用内手动配置**：点击悬浮窗标题栏的「🌐」按钮，输入代理地址（如 `http://127.0.0.1:7890` 或 `socks5://127.0.0.1:1080`），点「保存」即可；可先点「测试连接」验证可用性。
+3. **环境变量**：启动前设置 `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`（如 `http://127.0.0.1:7890`），优先级高于系统代理自动检测，低于应用内手动配置。
+
+配置保存在 `%APPDATA%/codebuddy-credit-widget/proxy-config.json`，一次设置长期生效；留空保存即恢复自动检测。代理同时作用于**登录窗口**与**积分数据接口**（含主进程 Node https 回退请求）。
+
+### 单例机制
+
+- 启动时调用 `app.requestSingleInstanceLock()` 获取单例锁：
+  - 获取成功（首个实例）→ 正常初始化窗口、托盘。
+  - 获取失败（已有实例在运行）→ 立即 `app.quit()` 退出新进程，避免多开。
+- 监听 `second-instance` 事件：当用户再次双击 exe 或从其他入口启动时，唤起并聚焦已有实例的悬浮窗（若窗口已隐藏则显示，已最小化则还原）。
+- `whenReady` 回调中通过 `app.hasSingleInstanceLock()` 二次校验，防止极端情况下重复创建窗口。
 
 ### 窗口位置与大小记忆
 
@@ -113,15 +135,23 @@ npm start
 ```
 .
 ├── package.json
+├── .github/workflows/release.yml   # GitHub Actions 自动构建发布
+├── build/
+│   └── icon.ico                    # 已提交的 exe 图标（CI 嵌入用）
+├── scripts/
+│   └── embed-icon.js               # 将 ICO 嵌入打包后的 exe
 ├── src/
-│   ├── main.js              # 主进程：窗口管理、登录捕获、API 调用、托盘
+│   ├── main.js              # 主进程：窗口管理、登录捕获、API 调用、代理、托盘
+│   ├── proxy-utils.js       # 代理工具函数（纯 Node：解析/隧道/超时等）
 │   ├── preload.js           # 预加载：安全暴露 IPC 桥接
 │   ├── assets/icon.png      # 应用/托盘图标（PNG，随包发布）
 │   └── renderer/
 │       ├── index.html       # 悬浮窗界面
 │       ├── style.css        # 半透明磨砂样式
 │       └── renderer.js      # 界面逻辑、登录流程、数据渲染
-└── test-api.js              # （可选）API 连通性自测脚本
+├── start.bat               # 本地快速启动（自动切 Node 18 并 npm start）
+├── build-portable.bat      # 本地一键打包便携版
+└── test-api.js             # （可选）API 连通性自测脚本
 ```
 
 ## 打包为 EXE
@@ -148,6 +178,44 @@ npm run build
 > - 若 electron-builder 报 `@noble/hashes` 的 ESM 错误，请降级 `electron-builder@24.9.1`（本工程已固定该版本）。
 > - **图标来源统一为 `src/assets/icon.png`**：替换此文件即可同时更新「应用运行时托盘/窗口图标」与「打包后 exe 图标」。
 > - `win.signAndEditExecutable: false` 可避免打包时 `rcedit` 报 `Unable to commit changes`；portable exe 的图标由 electron-builder 生成 NSIS 时从 `src/assets/icon.png` 转换而来（已验证生效）。
+> - 本地嵌入图标：`npm run embed:icon`（在 `electron-builder --win dir` 后运行，需存在 `build/icon.ico` 或本机 Python + Pillow）。
+
+## GitHub Actions 自动发布
+
+本项目已配置 GitHub Actions 工作流（`.github/workflows/release.yml`），在 `windows-latest` 上自动打包并发布到 GitHub Releases。
+
+### 触发方式
+
+**方式一：推送 tag（推荐）**
+
+```powershell
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+推送 `v*` 格式的 tag 后，Actions 自动构建，并在该 tag 下创建 GitHub Release（草稿）。
+
+**方式二：手动触发**
+
+仓库 Actions 页 → 选择 "Build & Release" → **Run workflow**，可预览构建产物但不创建 Release（除非基于 tag 触发）。
+
+### 发布产物
+
+| 文件 | 说明 |
+|------|------|
+| `CodeBuddy积分悬浮窗-<version>-portable.exe` | 便携版单文件，双击即用 |
+| `CodeBuddy积分悬浮窗 Setup <version>.exe` | NSIS 安装包 |
+| `codebuddy-viewer-win-unpacked.zip` | 解压版（内含带图标的 exe） |
+
+### 工作原理
+
+1. `actions/checkout` 检出代码 → `actions/setup-node`（Node 18）→ `npm ci` 安装依赖。
+2. `npx electron-builder --win nsis portable dir` 打包三种产物。
+3. `node scripts/embed-icon.js` 将 `build/icon.ico` 嵌入 `win-unpacked` 的 exe（rcedit 自动从 GitHub 下载）。
+4. 压缩 `win-unpacked` 为 zip，全部上传为 workflow artifacts。
+5. `softprops/action-gh-release` 将产物上传到当前 tag 的 Release。
+
+> 注意：首次推送工作流后，需在仓库 **Settings → Actions → General** 确认已允许创建工作流（默认允许）；Release 自动发布无需额外 token，工作流使用内置的 `GITHUB_TOKEN`（`permissions: contents: write`）。
 
 ## 注意事项
 

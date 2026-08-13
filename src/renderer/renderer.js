@@ -10,6 +10,12 @@ const el = {
   btnLoginOpen: document.getElementById('btn-login-open'),
   btnRefresh: document.getElementById('btn-refresh'),
   btnTop: document.getElementById('btn-top'),
+  btnProxy: document.getElementById('btn-proxy'),
+  proxyPanel: document.getElementById('proxy-panel'),
+  proxyInput: document.getElementById('proxy-input'),
+  proxyTest: document.getElementById('proxy-test'),
+  proxySave: document.getElementById('proxy-save'),
+  proxyStatus: document.getElementById('proxy-status'),
   btnClose: document.getElementById('btn-close'),
   btnOpacity: document.getElementById('btn-opacity'),
   opacityPanel: document.getElementById('opacity-panel'),
@@ -143,7 +149,7 @@ async function loadData() {
   } catch (e) {
     console.error(e);
     setStatus('加载失败');
-    toast('网络异常，请检查连接');
+    toast('网络异常，请检查网络或代理设置（点标题栏 🌐）');
   }
 }
 
@@ -228,6 +234,74 @@ el.opacitySlider.addEventListener('input', () => {
 
 // 透明度调节条拖动时不触发拖拽
 el.opacitySlider.addEventListener('mousedown', (e) => e.stopPropagation());
+
+// ============ 代理设置 ============
+let proxyBusy = false;
+
+async function refreshProxyPanel() {
+  try {
+    const info = await api.getProxy();
+    el.proxyInput.value = info.configured || '';
+    const src = info.active && info.active.source;
+    const raw = info.active && info.active.raw;
+    el.proxyStatus.textContent =
+      !src || src === 'none' ? '当前：自动（未检测到代理）' : `当前：${raw}（${src}）`;
+  } catch (e) {
+    el.proxyStatus.textContent = '获取代理信息失败';
+  }
+}
+
+el.btnProxy.addEventListener('click', () => {
+  el.proxyPanel.classList.toggle('hidden');
+  if (!el.proxyPanel.classList.contains('hidden')) refreshProxyPanel();
+});
+
+el.proxyTest.addEventListener('click', async () => {
+  if (proxyBusy) return;
+  proxyBusy = true;
+  el.proxyTest.disabled = true;
+  el.proxyStatus.textContent = '测试中...';
+  try {
+    const res = await api.testProxy({ proxy: el.proxyInput.value.trim() });
+    if (res.ok) {
+      el.proxyStatus.textContent = `连接成功（HTTP ${res.status}）`;
+      toast('代理连通，可正常访问');
+    } else {
+      el.proxyStatus.textContent = `连接失败：${res.msg || 'HTTP ' + res.status}`;
+      toast('代理不可用，请检查地址后重试');
+    }
+  } catch (e) {
+    el.proxyStatus.textContent = '测试出错：' + e.message;
+  } finally {
+    proxyBusy = false;
+    el.proxyTest.disabled = false;
+  }
+});
+
+el.proxySave.addEventListener('click', async () => {
+  if (proxyBusy) return;
+  proxyBusy = true;
+  el.proxySave.disabled = true;
+  try {
+    const res = await api.setProxy({ proxy: el.proxyInput.value.trim(), enabled: true });
+    if (res.ok) {
+      toast('代理设置已保存');
+      await refreshProxyPanel();
+    } else {
+      toast(res.msg || '保存失败');
+    }
+  } catch (e) {
+    toast('保存失败：' + e.message);
+  } finally {
+    proxyBusy = false;
+    el.proxySave.disabled = false;
+  }
+});
+
+// 代理面板控件交互时不触发窗口拖拽
+el.proxyInput.addEventListener('mousedown', (e) => e.stopPropagation());
+el.proxyTest.addEventListener('mousedown', (e) => e.stopPropagation());
+el.proxySave.addEventListener('mousedown', (e) => e.stopPropagation());
 
 // ============ 退出登录 ============
 // 点击后清除 cookie 并回到登录界面

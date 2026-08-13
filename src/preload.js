@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld('codebuddy', {
   onLoginSuccess: (cb) => ipcRenderer.on('auth:login-success', cb),
   // 数据
   fetchUsage: (options) => ipcRenderer.invoke('usage:fetch', options),
+  // 代理设置
+  getProxy: () => ipcRenderer.invoke('proxy:get'),
+  setProxy: (opts) => ipcRenderer.invoke('proxy:set', opts),
+  testProxy: (opts) => ipcRenderer.invoke('proxy:test', opts),
   // 窗口控制
   closeWindow: () => ipcRenderer.invoke('window:close'),
   quitApp: () => ipcRenderer.invoke('window:quit'),

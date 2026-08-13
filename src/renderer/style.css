@@ -177,6 +177,82 @@ body {
   text-align: right;
 }
 
+/* ========== 代理设置面板 ========== */
+.proxy-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  margin: 0 12px 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+.proxy-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.proxy-label {
+  font-size: 11px;
+  color: #8a94a8;
+  white-space: nowrap;
+}
+.proxy-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  color: #e6e9ef;
+  font-size: 11px;
+  outline: none;
+}
+.proxy-input:focus {
+  border-color: #3b82f6;
+}
+.mini-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cdd6e4;
+  transition: all 0.15s;
+}
+.mini-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+.mini-btn.primary {
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: #fff;
+  font-weight: 600;
+}
+.mini-btn.primary:hover {
+  filter: brightness(1.1);
+}
+.mini-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.proxy-status {
+  flex: 1;
+  font-size: 10px;
+  color: #7dd3fc;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.proxy-hint {
+  font-size: 10px;
+  color: #6b7488;
+  line-height: 1.5;
+}
+
 /* ========== 列表 ========== */
 .list-wrap {
   flex: 1;

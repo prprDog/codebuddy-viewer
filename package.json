@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win",
-    "build:portable": "electron-builder --win portable"
+    "build:portable": "electron-builder --win portable",
+    "embed:icon": "node scripts/embed-icon.js"
   },
   "author": "",
   "license": "MIT",

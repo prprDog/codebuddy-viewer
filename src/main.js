@@ -11,6 +11,33 @@ const { app, BrowserWindow, ipcMain, session, Menu, Tray, nativeImage, screen } 
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+// 代理工具函数（纯 Node，可独立测试）
+const {
+  getEnvProxy,
+  parseProxyUrl,
+  parseResolveProxyResult,
+  withTimeout,
+  requestViaHttpProxy,
+  requestViaSocksProxy,
+} = require('./proxy-utils');
+
+// ============ 单例锁：防止多开 ============
+// 通过 requestSingleInstanceLock 保证同一时间只有一个应用实例。
+// 若已有实例在运行，新的进程直接退出，并唤起已有实例的悬浮窗。
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  // 用户再次启动程序时（如双击 exe），聚焦已有实例的窗口
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createMainWindow();
+      return;
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
 
 // ============ 常量配置 ============
 const CODUBUDDY_BASE = 'https://www.codebuddy.cn';
@@ -336,6 +363,82 @@ async function tryAutoCapture() {
 // 登录会话分区名（与登录窗口一致）
 const SESSION_PARTITION = 'persist:codebuddy';
 
+// ============ 代理配置 ============
+// 生效优先级：手动配置(proxy-config.json) > 环境变量 HTTPS_PROXY/HTTP_PROXY/ALL_PROXY > 系统代理自动检测
+// 说明：Node https 回退请求默认不读系统代理，必须显式走代理；Electron 会话也在此统一显式设置，保证
+//       登录窗口与会话分区 fetch 走同一代理，避免「浏览器能开、程序连不上」的问题。
+const PROXY_FILE = () => path.join(app.getPath('userData'), 'proxy-config.json');
+const API_HOST = 'www.codebuddy.cn';
+
+// 当前生效的代理信息（main 进程 Node https 回退请求使用）
+let activeProxyInfo = { source: 'none', proxy: null, raw: null };
+
+function readProxyFile() {
+  try {
+    const raw = fs.readFileSync(PROXY_FILE(), 'utf-8');
+    const cfg = JSON.parse(raw);
+    if (cfg && typeof cfg.proxy === 'string' && cfg.proxy.trim()) {
+      return { proxy: cfg.proxy.trim(), enabled: cfg.enabled !== false };
+    }
+  } catch (e) {}
+  return null;
+}
+
+function writeProxyFile(proxy, enabled) {
+  try {
+    fs.mkdirSync(app.getPath('userData'), { recursive: true });
+    fs.writeFileSync(PROXY_FILE(), JSON.stringify({ proxy, enabled }, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[proxy] 保存配置失败:', e.message);
+  }
+}
+
+// 确定当前应使用的代理
+async function resolveEffectiveProxy() {
+  const manual = readProxyFile();
+  if (manual && manual.enabled) {
+    const parsed = parseProxyUrl(manual.proxy);
+    if (parsed) return { source: 'config', proxy: parsed, raw: manual.proxy };
+  }
+  const env = getEnvProxy();
+  const envParsed = env ? parseProxyUrl(env) : null;
+  if (envParsed) return { source: 'env', proxy: envParsed, raw: env };
+  try {
+    const result = await session.defaultSession.resolveProxy(CODUBUDDY_BASE);
+    const sys = parseResolveProxyResult(result);
+    if (sys) return { source: 'system', ...sys };
+  } catch (e) {}
+  return { source: 'none', proxy: null, raw: null };
+}
+
+// 将当前代理应用到 Electron 会话（登录窗口 + 会话分区 fetch）
+async function applyProxyToSessions() {
+  const proxy = activeProxyInfo && activeProxyInfo.proxy;
+  const sessions = [session.defaultSession, session.fromPartition(SESSION_PARTITION)];
+  for (const ses of sessions) {
+    try {
+      if (proxy) {
+        const rules = `${proxy.scheme}://${proxy.host}:${proxy.port}`;
+        await ses.setProxy({ proxyRules: rules, proxyBypassRules: '<local>' });
+      } else {
+        await ses.setProxy({ mode: 'system' });
+      }
+    } catch (e) {
+      console.error('[proxy] 应用代理到会话失败:', e.message);
+    }
+  }
+}
+
+async function setupProxy() {
+  activeProxyInfo = await resolveEffectiveProxy();
+  if (activeProxyInfo.source === 'none') {
+    console.log('[proxy] 未检测到代理，使用系统默认网络（直连/系统代理）');
+  } else {
+    console.log(`[proxy] 使用代理(${activeProxyInfo.source}): ${activeProxyInfo.raw}`);
+  }
+  await applyProxyToSessions();
+}
+
 // 仅携带鉴权所需的关键 cookie，避免 Cookie 头过大导致网关 400（回退方案用）
 function buildCookieStr(cookies) {
   if (!cookies || cookies.length === 0) return '';
@@ -382,14 +485,14 @@ async function callApiViaSession(endpoint, payload) {
   return normalizeResponse(resp.status, text);
 }
 
-// 方案二：手动拼 cookie 的 Node https 请求（回退）
+// 方案二：手动拼 cookie 的 Node https 请求（回退，配置代理时自动走代理隧道）
 function callApiViaNode(endpoint, payload) {
   return new Promise((resolve, reject) => {
     const saved = readSession();
     const cookieStr = buildCookieStr(saved.cookies);
     const body = JSON.stringify(payload);
     const options = {
-      hostname: 'www.codebuddy.cn',
+      hostname: API_HOST,
       port: 443,
       path: endpoint,
       method: 'POST',
@@ -403,15 +506,28 @@ function callApiViaNode(endpoint, payload) {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
       },
+      body,
     };
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => (data += chunk));
-      res.on('end', () => resolve(normalizeResponse(res.statusCode, data)));
-    });
-    req.on('error', (err) => reject(err));
-    req.write(body);
-    req.end();
+
+    const proxy = activeProxyInfo && activeProxyInfo.proxy;
+    let p;
+    if (proxy && proxy.scheme.startsWith('socks')) {
+      p = requestViaSocksProxy(options, proxy);
+    } else if (proxy) {
+      p = requestViaHttpProxy(options, proxy);
+    } else {
+      p = new Promise((res, rej) => {
+        const req = https.request(options, (resp) => {
+          let data = '';
+          resp.on('data', (c) => (data += c));
+          resp.on('end', () => res({ status: resp.statusCode, data }));
+        });
+        req.on('error', rej);
+        req.write(body);
+        req.end();
+      });
+    }
+    p.then((r) => resolve(normalizeResponse(r.status, r.data))).catch(reject);
   });
 }
 
@@ -424,7 +540,8 @@ async function callApi(endpoint, payload) {
     try {
       return await callApiViaNode(endpoint, payload);
     } catch (e2) {
-      return { code: -2, msg: '网络请求失败: ' + e2.message, status: 0 };
+      const hint = activeProxyInfo && activeProxyInfo.proxy ? '（请检查代理设置）' : '（请检查网络或代理设置）';
+      return { code: -2, msg: '网络请求失败' + hint + ': ' + e2.message, status: 0 };
     }
   }
 }
@@ -452,6 +569,65 @@ ipcMain.handle('app:get-session', async () => {
 ipcMain.handle('auth:open-login', async () => {
   createLoginWindow();
   return true;
+});
+
+// ============ 代理 IPC ============
+ipcMain.handle('proxy:get', async () => {
+  const fileCfg = readProxyFile();
+  return {
+    configured: fileCfg ? fileCfg.proxy : '',
+    enabled: fileCfg ? fileCfg.enabled : true,
+    active: activeProxyInfo,
+  };
+});
+
+ipcMain.handle('proxy:set', async (_event, payload = {}) => {
+  const proxy = typeof payload.proxy === 'string' ? payload.proxy.trim() : '';
+  const enabled = payload.enabled !== false;
+  if (proxy && !parseProxyUrl(proxy)) {
+    return { ok: false, msg: '代理地址格式不正确，示例：http://127.0.0.1:7890' };
+  }
+  if (proxy) {
+    writeProxyFile(proxy, enabled);
+  } else {
+    try {
+      fs.unlinkSync(PROXY_FILE());
+    } catch (e) {}
+  }
+  activeProxyInfo = await resolveEffectiveProxy();
+  await applyProxyToSessions();
+  return { ok: true, active: activeProxyInfo };
+});
+
+ipcMain.handle('proxy:test', async (_event, payload = {}) => {
+  const proxyStr = typeof payload.proxy === 'string' ? payload.proxy.trim() : '';
+  const parsed = proxyStr ? parseProxyUrl(proxyStr) : activeProxyInfo && activeProxyInfo.proxy;
+  const opts = {
+    hostname: API_HOST,
+    port: 443,
+    path: '/',
+    method: 'GET',
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) CodeBuddy-Credit-Widget/1.0' },
+  };
+  const proxyLabel = proxyStr || (activeProxyInfo && activeProxyInfo.raw) || '系统默认(直连)';
+  try {
+    let p;
+    if (!parsed) {
+      p = new Promise((res, rej) => {
+        const req = https.request(opts, (r) => res({ status: r.statusCode }));
+        req.on('error', rej);
+        req.end();
+      });
+    } else if (parsed.scheme.startsWith('socks')) {
+      p = requestViaSocksProxy(opts, parsed);
+    } else {
+      p = requestViaHttpProxy(opts, parsed);
+    }
+    const r = await withTimeout(p, 10000, '连接超时（10 秒）');
+    return { ok: r.status >= 200 && r.status < 500, status: r.status, proxy: proxyLabel };
+  } catch (e) {
+    return { ok: false, msg: e.message, proxy: proxyLabel };
+  }
 });
 
 // 登录窗口完成捕获后触发：由渲染进程通知主进程刷新会话
@@ -569,8 +745,14 @@ ipcMain.handle('window:set-opacity', (event, value) => {
 });
 
 // ============ 应用生命周期 ============
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // 双保险：若未持有单例锁（第二个实例），立即退出，避免重复创建窗口
+  if (!app.hasSingleInstanceLock()) {
+    app.quit();
+    return;
+  }
   Menu.setApplicationMenu(null);
+  await setupProxy(); // 先解析并应用代理，保证登录窗口与 API 请求都走同一网络配置
   createTray(); // 托盘常驻
   createMainWindow();
 });

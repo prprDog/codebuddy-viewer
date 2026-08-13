@@ -1,0 +1,84 @@
+# 自动构建 + Release 发布
+#
+# 触发方式：
+#   1) 推送 tag（v*）：git push origin v1.0.0   → 打包并创建 GitHub Release
+#   2) 手动触发：仓库 Actions 页 → "Build & Release" → Run workflow
+#
+# 产物：
+#   - CodeBuddy积分悬浮窗-<version>-portable.exe  便携版（单文件，双击即用）
+#   - CodeBuddy积分悬浮窗 Setup <version>.exe     NSIS 安装包
+#   - CodeBuddy积分悬浮窗-win-unpacked.zip        解压版（内含 exe，双击即可运行）
+#
+# 说明：
+#   - 在 windows-latest 上直接构建，无需 wine
+#   - 使用已提交的 build/icon.ico 嵌入 exe 图标（无需 Python 环境）
+#   - embed-icon.js 找不到 rcedit 时会自动从 GitHub 下载
+#   - 所有产物同时上传为 workflow artifacts（便于手动触发时预览）
+
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write # 允许创建 Release
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package win (nsis + portable + dir)
+        run: npx electron-builder --win nsis portable dir
+
+      - name: Embed custom icon into exe
+        run: node scripts/embed-icon.js
+
+      - name: Create zip archive
+        shell: pwsh
+        run: Compress-Archive -Path dist/win-unpacked -DestinationPath dist/codebuddy-viewer-win-unpacked.zip -Force
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/*.exe
+            dist/*.zip
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.zip
+          name: CodeBuddy积分悬浮窗 ${{ github.ref_name }}
+          body: |
+            自动构建发布（GitHub Actions）
+
+            ## 下载说明
+            - `CodeBuddy积分悬浮窗-<version>-portable.exe`：便携版，双击即可运行
+            - `CodeBuddy积分悬浮窗 Setup <version>.exe`：NSIS 安装包
+            - `codebuddy-viewer-win-unpacked.zip`：解压后双击 `CodeBuddy积分悬浮窗.exe` 即可运行
+
+            ## 功能
+            - CodeBuddy 积分使用情况桌面悬浮列表组件（Win11 半透明磨砂）
+            - 完整登录集成（微信扫码登录，自动持久化会话）
+            - 单例运行、等比例缩放、窗口位置/大小记忆
+            - 代理设置、自动刷新（60s）
