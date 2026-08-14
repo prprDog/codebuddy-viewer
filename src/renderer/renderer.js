@@ -23,10 +23,17 @@ const el = {
   opacityValue: document.getElementById('opacity-value'),
   sumRequests: document.getElementById('sum-requests'),
   sumCredits: document.getElementById('sum-credits'),
+  creditUsed: document.getElementById('credit-used'),
+  creditTotal: document.getElementById('credit-total'),
+  creditLeft: document.getElementById('credit-left'),
+  creditPercent: document.getElementById('credit-percent'),
+  creditPackages: document.getElementById('credit-packages'),
+  creditBarFill: document.getElementById('credit-bar-fill'),
   usageList: document.getElementById('usage-list'),
   footStatus: document.getElementById('foot-status'),
   footTime: document.getElementById('foot-time'),
   btnLogout: document.getElementById('btn-logout'),
+  autostartSwitch: document.getElementById('autostart-switch'),
   toast: document.getElementById('toast'),
 };
 
@@ -60,6 +67,31 @@ function formatCredit(v) {
   const n = Number(v);
   if (Number.isNaN(n)) return '-';
   return n.toFixed(2);
+}
+
+// 渲染积分资源总览（进度条）
+function renderCreditOverview(resource) {
+  const hasData = resource && (resource.total > 0 || resource.used > 0 || resource.packageCount > 0);
+  if (!hasData) {
+    el.creditUsed.textContent = '-';
+    el.creditTotal.textContent = '-';
+    el.creditLeft.textContent = '暂无可用额度';
+    el.creditPercent.textContent = '';
+    el.creditPackages.textContent = '';
+    el.creditBarFill.style.width = '0%';
+    return;
+  }
+  const total = resource.total || 0;
+  const used = resource.used || 0;
+  const left = resource.left || 0;
+  const percent = Math.min(100, Math.max(0, resource.percent || 0));
+
+  el.creditUsed.textContent = String(used);
+  el.creditTotal.textContent = String(total);
+  el.creditLeft.textContent = `剩余 ${left} 积分`;
+  el.creditPercent.textContent = `${Math.round(percent)}%`;
+  el.creditPackages.textContent = resource.packageCount ? `${resource.packageCount} 个套餐` : '';
+  el.creditBarFill.style.width = `${percent}%`;
 }
 
 function formatTime(t) {
@@ -112,8 +144,22 @@ function renderList(list) {
   });
 }
 
+// 刷新状态标记（防止并发刷新）
+let refreshing = false;
+
+// 刷新中：图标旋转并禁用按钮
+function setRefreshing(on) {
+  refreshing = on;
+  el.btnRefresh.classList.toggle('spinning', on);
+  el.btnRefresh.disabled = on;
+  el.btnRefresh.title = on ? '刷新中...' : '刷新';
+}
+
 // 加载数据
 async function loadData() {
+  // 已在使用数据时（自动刷新/手动刷新），避免并发请求
+  if (refreshing) return;
+  setRefreshing(true);
   setStatus('加载中...');
   try {
     const res = await api.fetchUsage();
@@ -132,6 +178,9 @@ async function loadData() {
     // 列表只显示最近 30 条（接口按时间倒序，前 30 即最新）
     renderList(all.slice(0, 30));
 
+    // 积分资源总览（进度条）
+    renderCreditOverview(res.resource);
+
     // 登录失效判断
     if (reqUsage.code === 401 || reqUsage.status === 401) {
       showLogin();
@@ -146,16 +195,30 @@ async function loadData() {
     }
 
     setStatus(`共 ${total} 条请求 · 已更新`);
+    // 手动刷新才提示成功（自动刷新不打扰）；通过按钮触发时传入标志
+    if (loadData.manual) {
+      toast('刷新成功');
+    }
   } catch (e) {
     console.error(e);
     setStatus('加载失败');
     toast('网络异常，请检查网络或代理设置（点标题栏 🌐）');
+  } finally {
+    setRefreshing(false);
   }
+}
+
+// 手动刷新（按钮触发）：带成功提示；自动刷新（定时器）不提示
+function manualRefresh() {
+  loadData.manual = true;
+  loadData();
 }
 
 // 初始化：检查会话
 async function init() {
   try {
+    // 同步开机自启开关状态（不依赖登录态）
+    refreshAutoLaunch();
     const session = await api.getSession();
     if (session && session.hasSession) {
       showApp();
@@ -197,7 +260,7 @@ async function confirmLogin() {
 // ============ 事件绑定 ============
 el.btnLogin.addEventListener('click', doLogin);
 el.btnLoginOpen.addEventListener('click', confirmLogin);
-el.btnRefresh.addEventListener('click', loadData);
+el.btnRefresh.addEventListener('click', manualRefresh);
 // 左键：隐藏到托盘；右键：退出应用
 el.btnClose.addEventListener('click', () => {
   api.closeWindow();
@@ -234,6 +297,35 @@ el.opacitySlider.addEventListener('input', () => {
 
 // 透明度调节条拖动时不触发拖拽
 el.opacitySlider.addEventListener('mousedown', (e) => e.stopPropagation());
+
+// ============ 开机自启 ============
+// 读取当前自启状态并同步到开关
+async function refreshAutoLaunch() {
+  try {
+    const enabled = await api.getAutoLaunch();
+    el.autostartSwitch.checked = !!enabled;
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+el.autostartSwitch.addEventListener('change', async () => {
+  const enable = el.autostartSwitch.checked;
+  try {
+    const applied = await api.setAutoLaunch(enable);
+    if (applied === enable) {
+      toast(enable ? '已开启开机自启' : '已关闭开机自启');
+    } else {
+      // 开发模式（electron.exe）下设置可能不生效
+      el.autostartSwitch.checked = !!applied;
+      toast('设置未生效：请使用打包后的 exe 运行（开发模式不支持开机自启）', 3000);
+    }
+  } catch (e) {
+    console.error(e);
+    el.autostartSwitch.checked = !enable;
+    toast('设置开机自启失败');
+  }
+});
 
 // ============ 代理设置 ============
 let proxyBusy = false;

@@ -105,6 +105,21 @@ body {
 .icon-btn.active {
   color: #60a5fa;
 }
+/* 刷新中：图标旋转动画 + 禁用态 */
+.icon-btn.spinning {
+  animation: spin 1s linear infinite;
+  color: #60a5fa;
+  pointer-events: none;
+  opacity: 0.7;
+}
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* ========== 汇总卡片 ========== */
 .summary {
@@ -131,6 +146,135 @@ body {
   font-size: 20px;
   font-weight: 700;
   color: #f1f5fa;
+}
+
+/* ========== 积分资源总览（进度条） ========== */
+.credit-overview {
+  margin: 6px 12px 0;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.credit-overview__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.credit-overview__title {
+  font-size: 11px;
+  color: #8a94a8;
+}
+.credit-overview__packages {
+  font-size: 10px;
+  color: #5f6b80;
+}
+.credit-overview__nums {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.credit-overview__used {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+.credit-overview__used .credit-overview__num {
+  font-size: 18px;
+  font-weight: 700;
+  color: #60a5fa;
+}
+.credit-overview__divider {
+  color: #5f6b80;
+  font-size: 14px;
+}
+.credit-overview__total {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+.credit-overview__total .credit-overview__num {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f1f5fa;
+}
+.credit-overview__suffix {
+  font-size: 10px;
+  color: #8a94a8;
+}
+.credit-overview__percent {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fbbf24;
+}
+.credit-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.credit-bar__fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #60a5fa, #2ee4a3);
+  transition: width 0.5s ease;
+}
+.credit-overview__hint {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.credit-overview__left {
+  font-size: 10px;
+  color: #8a94a8;
+}
+
+/* ========== 开机自启 ========== */
+.autostart {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+}
+.autostart input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 26px;
+  height: 14px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.15);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin: 0;
+  flex-shrink: 0;
+}
+.autostart input[type='checkbox']::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #b6c0d4;
+  transition: transform 0.2s, background 0.2s;
+}
+.autostart input[type='checkbox']:checked {
+  background: rgba(96, 165, 250, 0.5);
+}
+.autostart input[type='checkbox']:checked::after {
+  transform: translateX(12px);
+  background: #60a5fa;
+}
+.autostart-label {
+  font-size: 10px;
+  color: #8a94a8;
 }
 
 /* ========== 透明度调节条 ========== */

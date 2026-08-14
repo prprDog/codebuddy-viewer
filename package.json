@@ -1,6 +1,6 @@
 {
   "name": "codebuddy-credit-widget",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CodeBuddy 积分使用情况桌面悬浮列表组件（Win11）",
   "main": "src/main.js",
   "scripts": {

@@ -51,6 +51,35 @@ const API_GET_USER_RESOURCE = '/billing/meter/get-user-resource'; // 资源/积�
 // 会话数据存储路径
 const SESSION_FILE = path.join(app.getPath('userData'), 'codebuddy-session.json');
 
+// ---------- get-user-resource 套餐代码 ----------
+// 与 CodeBuddy 前端 usercenter bundle 同步维护（Ne 常量 + 用户示例）。
+// 用于获取全部积分套餐（计划/试用/加量包/赠送包）。
+const API_PRODUCT_CODE = 'p_tcaca';
+const API_PACKAGE_CODES = [
+  // 免费 / 试用
+  'TCACA_code_001_PqouKr6QWV', // free
+  'TCACA_code_008_cfWoLwvjU4', // freeMon（按日 slice）
+  'TCACA_code_035_ArVxJcGDsm', // freeSub
+  'TCACA_code_039_KRcQj7wUat', // proTrialMon
+  'TCACA_code_040_mi9rCYg46x', // proTrialYear
+  // 基础计划
+  'TCACA_code_002_AkiJS3ZHF5', // proMon（Standard 月）
+  'TCACA_code_003_FAnt7lcmRT', // proYear
+  // 加量包 / 赠送 / 活动
+  'TCACA_code_009_0XmEQc2xOf', // extraLegacy
+  'TCACA_code_036_lupO5WgNdG', // extra500
+  'TCACA_code_037_WxOD3MpI2o', // versionBonus
+  'TCACA_code_006_DbXS0lrypC', // gift
+  'TCACA_code_007_nzdH5h4Nl0', // activity
+  // 其他（前端 bundle / 用户示例中出现的代码）
+  'TCACA_code_023_4xbGhMrE6q',
+  'TCACA_code_026_BaESVICNoi',
+  'TCACA_code_027_0FCGVA6vSa',
+  'TCACA_code_028_NtpWi0jzXs',
+  'TCACA_code_029_6wCGEWquYy',
+  'TCACA_code_030_BjSt89qTvr',
+];
+
 // ============ 会话 Cookie 持久化 ============
 function readSession() {
   try {
@@ -546,6 +575,120 @@ async function callApi(endpoint, payload) {
   }
 }
 
+// ---------- get-user-resource 汇总解析 ----------
+// 响应结构（从 CodeBuddy 接口实测确认）：
+//   {
+//     code: 0, msg: "OK",
+//     data: {
+//       Response: {
+//         Data: {
+//           TotalCount: number,
+//           TotalDosage: number,       // 总已用量（便捷字段）
+//           Accounts: [{
+//             PackageCode: string,
+//             PackageName: string,
+//             Status: number,
+//             CapacityType: number,    // 容量类型（含按日 slice）
+//             CapacityUnit: string,    // "credits"
+//             CapacitySizePrecise: string,    // 总量（total，字符串）
+//             CapacityRemainPrecise: string,  // 剩余（left，字符串）
+//             CapacityUsedPrecise: string,    // 已用（used，字符串）
+//             CycleCapacitySizePrecise: string,  // 周期总量
+//             CycleCapacityRemainPrecise: string, // 周期剩余
+//             CycleCapacityUsedPrecise: string,   // 周期已用
+//             SlicePeriodUsageDetails: [{ SlicePeriodCapacitySizePrecise, SlicePeriodCapacityRemainPrecise }],
+//             ...
+//           }]
+//         }
+//       }
+//     }
+//   }
+// 汇总逻辑（与前端一致）：
+//   total = Σ 各账户总量
+//   used  = Σ 各账户已用
+//   left  = total - used
+//   percent = total>0 ? used/total*100 : 0
+
+function normalizeResourceAccounts(resp) {
+  const accounts = resp && resp.data && resp.data.Response && resp.data.Response.Data &&
+    resp.data.Response.Data.Accounts;
+  return Array.isArray(accounts) ? accounts : [];
+}
+
+// 提取单个账户的 total/used（兼容普通账户与按日 slice 账户）
+// 语义（与前端按月统计一致）：
+//   - total = 账户总容量（CapacitySizePrecise；缺省回退 CycleCapacitySizePrecise）
+//   - used  = 当前周期已用（CycleCapacityUsedPrecise；缺省回退 CapacityUsedPrecise）
+//     —— 接口总览的 TotalDosage 即各账户 CycleCapacityUsedPrecise 之和
+// 字段优先级：CycleCapacityUsedPrecise > CapacityUsedPrecise > SlicePeriodUsageDetails
+function extractAccountQuota(acc) {
+  if (!acc) return { total: 0, used: 0 };
+
+  // 总容量：优先 CapacitySizePrecise（账户总容量），回退周期容量
+  const size = Number(acc.CapacitySizePrecise);
+  const cycleSize = Number(acc.CycleCapacitySizePrecise);
+
+  // 已用：优先当前周期已用（CycleCapacityUsedPrecise），回退账户已用
+  const cycleUsed = Number(acc.CycleCapacityUsedPrecise);
+  const used = Number(acc.CapacityUsedPrecise);
+  const cycleRemain = Number(acc.CycleCapacityRemainPrecise);
+  const remain = Number(acc.CapacityRemainPrecise);
+
+  const finalTotal = size > 0 ? size : cycleSize > 0 ? cycleSize : 0;
+  let finalUsed = 0;
+  if (cycleUsed > 0) {
+    finalUsed = cycleUsed;
+  } else if (used > 0) {
+    finalUsed = used;
+  } else if (cycleSize > 0 && cycleRemain >= 0) {
+    finalUsed = Math.max(0, cycleSize - cycleRemain);
+  } else if (size > 0 && remain >= 0) {
+    finalUsed = Math.max(0, size - remain);
+  }
+
+  // 按日 slice 账户：无 Cycle/Capacity 已用时取当日切片
+  if (finalUsed === 0 && finalTotal === 0 &&
+    Array.isArray(acc.SlicePeriodUsageDetails) && acc.SlicePeriodUsageDetails.length > 0) {
+    const s = acc.SlicePeriodUsageDetails[0];
+    const sSize = Number(s.SlicePeriodCapacitySizePrecise);
+    const sRemain = Number(s.SlicePeriodCapacityRemainPrecise);
+    if (sSize > 0) {
+      return { total: sSize, used: Math.max(0, sSize - sRemain) };
+    }
+  }
+
+  return { total: finalTotal, used: finalUsed };
+}
+
+// 汇总所有套餐积分：返回 { total, used, left, percent, accounts, packageCount }
+function summarizeResource(resp) {
+  const accounts = normalizeResourceAccounts(resp);
+  let total = 0;
+  let used = 0;
+  let validCount = 0;
+
+  for (const acc of accounts) {
+    const q = extractAccountQuota(acc);
+    // 只统计有额度的有效套餐（total>0 或 used>0），忽略纯 0 占位
+    if (q.total <= 0 && q.used <= 0) continue;
+    total += q.total;
+    used += q.used;
+    validCount++;
+  }
+  const left = Math.max(0, total - used);
+  const percent = total > 0 ? Math.min(100, Math.max(0, (used / total) * 100)) : 0;
+
+  return {
+    total: Math.round(total),
+    used: Math.round(used),
+    left: Math.round(left),
+    percent: Math.round(percent * 10) / 10,
+    packageCount: validCount,
+    accounts,
+    raw: resp, // 保留原始响应供调试/扩展
+  };
+}
+
 // 计算本自然月起止时间（积分按自然月统计）
 function monthRange() {
   const now = new Date();
@@ -714,8 +857,16 @@ ipcMain.handle('usage:fetch', async (event, options = {}) => {
     startTime: options.startTime || range.startTime,
     endTime: options.endTime || range.endTime,
   });
-  // 3) 积分资源余额
-  const resource = await callApi(API_GET_USER_RESOURCE, {});
+  // 3) 积分资源余额：获取全部套餐积分，并汇总 已用/总量/百分比
+  const resourceResp = await callApi(API_GET_USER_RESOURCE, {
+    PageNumber: 1,
+    PageSize: 200,
+    ProductCode: API_PRODUCT_CODE,
+    Status: [0, 3],
+    OnlyValidPeriod: true,
+    PackageCodes: API_PACKAGE_CODES,
+  });
+  const resource = summarizeResource(resourceResp);
 
   return { requestUsage, dailyUsage, resource };
 });
@@ -742,6 +893,36 @@ ipcMain.handle('window:set-opacity', (event, value) => {
     mainWindow.setOpacity(Math.min(1, Math.max(0.3, value)));
   }
   return true;
+});
+
+// ============ 开机自启 ============
+// Windows 通过注册表 Run 键实现（app.setLoginItemSettings）
+// 仅在打包后（exe）生效；开发模式（electron.exe）下返回 false 提示
+function getAutoLaunch() {
+  return app.getLoginItemSettings().openAtLogin;
+}
+
+ipcMain.handle('app:get-auto-launch', () => {
+  try {
+    return getAutoLaunch();
+  } catch (e) {
+    console.error('[auto-launch] 读取失败:', e.message);
+    return false;
+  }
+});
+
+ipcMain.handle('app:set-auto-launch', (_event, enable) => {
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: !!enable,
+      openAsHidden: false,
+      path: process.execPath,
+    });
+    return getAutoLaunch();
+  } catch (e) {
+    console.error('[auto-launch] 设置失败:', e.message);
+    return false;
+  }
 });
 
 // ============ 应用生命周期 ============

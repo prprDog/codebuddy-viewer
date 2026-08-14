@@ -84,6 +84,32 @@
         </div>
       </section>
 
+      <!-- 积分资源总览（进度条） -->
+      <section class="credit-overview">
+        <div class="credit-overview__head">
+          <span class="credit-overview__title">积分套餐总览</span>
+          <span id="credit-packages" class="credit-overview__packages"></span>
+        </div>
+        <div class="credit-overview__nums">
+          <span class="credit-overview__used">
+            <span id="credit-used" class="credit-overview__num">-</span>
+            <span class="credit-overview__suffix">已用</span>
+          </span>
+          <span class="credit-overview__divider">/</span>
+          <span class="credit-overview__total">
+            <span id="credit-total" class="credit-overview__num">-</span>
+            <span class="credit-overview__suffix">总量</span>
+          </span>
+          <span id="credit-percent" class="credit-overview__percent">-</span>
+        </div>
+        <div class="credit-bar">
+          <div id="credit-bar-fill" class="credit-bar__fill" style="width: 0%"></div>
+        </div>
+        <div class="credit-overview__hint">
+          <span id="credit-left" class="credit-overview__left">-</span>
+        </div>
+      </section>
+
       <!-- 数据列表 -->
       <main class="list-wrap">
         <ul id="usage-list" class="usage-list"></ul>
@@ -93,6 +119,10 @@
         <span id="foot-status">加载中...</span>
         <span class="foot-right">
           <span id="foot-time" class="time"></span>
+          <label class="autostart" title="开机自动启动悬浮窗">
+            <input id="autostart-switch" type="checkbox" />
+            <span class="autostart-label">开机自启</span>
+          </label>
           <button id="btn-logout" class="logout-btn" title="清除登录状态并退出登录">退出登录</button>
         </span>
       </footer>

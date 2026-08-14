@@ -23,4 +23,7 @@ contextBridge.exposeInMainWorld('codebuddy', {
   quitApp: () => ipcRenderer.invoke('window:quit'),
   setAlwaysOnTop: (flag) => ipcRenderer.invoke('window:set-always-on-top', flag),
   setOpacity: (value) => ipcRenderer.invoke('window:set-opacity', value),
+  // 开机自启
+  getAutoLaunch: () => ipcRenderer.invoke('app:get-auto-launch'),
+  setAutoLaunch: (enable) => ipcRenderer.invoke('app:set-auto-launch', enable),
 });
