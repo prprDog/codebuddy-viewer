@@ -46,12 +46,14 @@ jobs:
       # 基础解压版：无需额外工具链，最稳妥；也是后续安装包的基础。
       # 不设置 ELECTRON_MIRROR：electron-builder 默认即使用 GitHub 官方源，
       # 且默认 URL 带 v 前缀（.../download/v31.7.7/...）；手动设置反而会拼出错误路径导致 404。
+      # --publish never：禁用 electron-builder 自动发布（tag 触发时默认 onTagOrDraft 会尝试
+      # 发布到 GitHub，需要 GH_TOKEN），发布统一交给下方 Create GitHub Release 步骤。
       - name: Package win-unpacked (dir)
-        run: npx electron-builder --win dir
+        run: npx electron-builder --win dir --publish never
 
       # 安装包/便携版：需要下载 NSIS + winCodeSign 工具链（同样走官方默认源）
       - name: Package nsis + portable
-        run: npx electron-builder --win nsis portable
+        run: npx electron-builder --win nsis portable --publish never
 
       - name: Embed custom icon into exe
         run: node scripts/embed-icon.js
@@ -73,6 +75,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           files: |
             dist/*.exe
             dist/*.zip
