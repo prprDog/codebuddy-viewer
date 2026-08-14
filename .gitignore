@@ -28,9 +28,10 @@ generated-images/
 /t-min.bat
 /test-*.js
 
-# ===== 操作系统 / 编辑器 =====
+# ===== 操作系统 / 编辑器 / IDE 本地配置 =====
 Thumbs.db
 Desktop.ini
 .DS_Store
 .vscode/
 .idea/
+.codebuddy/

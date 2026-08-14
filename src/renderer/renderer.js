@@ -156,13 +156,13 @@ function setRefreshing(on) {
 }
 
 // 加载数据
-async function loadData() {
+async function loadData(options = {}) {
   // 已在使用数据时（自动刷新/手动刷新），避免并发请求
   if (refreshing) return;
   setRefreshing(true);
   setStatus('加载中...');
   try {
-    const res = await api.fetchUsage();
+    const res = await api.fetchUsage(options);
     const reqUsage = res.requestUsage || {};
 
     // 接口返回结构：{ code, data: { total, data: [...] } }
@@ -196,7 +196,7 @@ async function loadData() {
 
     setStatus(`共 ${total} 条请求 · 已更新`);
     // 手动刷新才提示成功（自动刷新不打扰）；通过按钮触发时传入标志
-    if (loadData.manual) {
+    if (options.manual) {
       toast('刷新成功');
     }
   } catch (e) {
@@ -208,15 +208,16 @@ async function loadData() {
   }
 }
 
-// 手动刷新（按钮触发）：带成功提示；自动刷新（定时器）不提示
+// 手动刷新（按钮触发）：带成功提示并强制刷新积分套餐数据；自动刷新（定时器）不提示
 function manualRefresh() {
-  loadData.manual = true;
-  loadData();
+  loadData({ manual: true });
 }
 
 // 初始化：检查会话
 async function init() {
   try {
+    // 初始化置顶图标状态（默认未置顶）
+    updateTopIcon();
     // 同步开机自启开关状态（不依赖登录态）
     refreshAutoLaunch();
     const session = await api.getSession();
@@ -271,10 +272,17 @@ el.btnClose.addEventListener('contextmenu', (e) => {
   api.quitApp();
 });
 
+// 置顶状态图标切换：未置顶 📌 / 置顶 📍（实心标识）
+function updateTopIcon() {
+  el.btnTop.classList.toggle('active', isTop);
+  el.btnTop.setAttribute('data-on', isTop ? 'true' : 'false');
+  el.btnTop.title = isTop ? '取消置顶' : '置顶';
+}
+
 el.btnTop.addEventListener('click', () => {
   isTop = !isTop;
-  el.btnTop.classList.toggle('active', isTop);
   api.setAlwaysOnTop(isTop);
+  updateTopIcon();
   toast(isTop ? '已置顶' : '已取消置顶');
 });
 

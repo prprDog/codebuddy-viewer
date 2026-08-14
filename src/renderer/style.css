@@ -102,8 +102,19 @@ body {
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
 }
+/* 置顶状态图标：未置顶显示 📌，置顶显示 📍 并高亮 */
+#btn-top .top-icon {
+  display: none;
+}
+#btn-top[data-on='false'] .top-icon[data-off] {
+  display: inline;
+}
+#btn-top[data-on='true'] .top-icon[data-on] {
+  display: inline;
+}
 .icon-btn.active {
   color: #60a5fa;
+  background: rgba(96, 165, 250, 0.15);
 }
 /* 刷新中：图标旋转动画 + 禁用态 */
 .icon-btn.spinning {

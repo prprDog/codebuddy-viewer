@@ -99,6 +99,28 @@ async function captureCookies(win) {
   try {
     const cookies = await win.webContents.session.cookies.get({ domain: '.codebuddy.cn' });
     writeSession(cookies);
+    // 同步写回主应用的分区 CookieStore：确保重启后 callApiViaSession 也能直接用分区 cookie，
+    // 避免依赖 Node 回退（会话级 cookie 无 expirationDate，重启后分区可能缺失）。
+    try {
+      const ses = session.fromPartition(SESSION_PARTITION);
+      for (const c of cookies) {
+        try {
+          await ses.cookies.set({
+            url: `https://${c.domain}${c.path || '/'}`,
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            path: c.path || '/',
+            secure: !!c.secure,
+            httpOnly: !!c.httpOnly,
+            sameSite: c.sameSite || 'no_restriction',
+            expirationDate: c.expirationDate || Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7,
+          });
+        } catch (e) {}
+      }
+    } catch (e) {
+      console.warn('写回分区 cookie 失败:', e.message);
+    }
     return cookies;
   } catch (e) {
     console.error('捕获 cookie 失败:', e.message);
@@ -563,7 +585,14 @@ function callApiViaNode(endpoint, payload) {
 // 统一入口：优先会话 fetch，失败则回退 Node https
 async function callApi(endpoint, payload) {
   try {
-    return await callApiViaSession(endpoint, payload);
+    const r = await callApiViaSession(endpoint, payload);
+    // 会话分区返回 401（重启后分区 Cookie 可能未落盘，session 文件中有完整 cookie）
+    // 401 是正常 HTTP 响应不会抛异常，需在此主动回退 Node https
+    if (r && (r.status === 401 || r.code === 401)) {
+      console.warn('会话分区 401，回退 Node https:', endpoint);
+      return await callApiViaNode(endpoint, payload);
+    }
+    return r;
   } catch (e) {
     console.error('会话 fetch 失败，回退 Node https:', e.message);
     try {
@@ -659,6 +688,11 @@ function extractAccountQuota(acc) {
 
   return { total: finalTotal, used: finalUsed };
 }
+
+// get-user-resource 结果缓存：套餐额度为低频数据，且接口存在 RequestLimitExceeded 限流。
+// 自动刷新复用 5 分钟内的缓存；失败/限流时回退到上次成功缓存，避免进度条数据消失。
+const RESOURCE_CACHE_TTL = 5 * 60 * 1000; // 5 分钟
+let resourceCache = null; // { at: number, data: summary }
 
 // 汇总所有套餐积分：返回 { total, used, left, percent, accounts, packageCount }
 function summarizeResource(resp) {
@@ -857,16 +891,44 @@ ipcMain.handle('usage:fetch', async (event, options = {}) => {
     startTime: options.startTime || range.startTime,
     endTime: options.endTime || range.endTime,
   });
-  // 3) 积分资源余额：获取全部套餐积分，并汇总 已用/总量/百分比
-  const resourceResp = await callApi(API_GET_USER_RESOURCE, {
-    PageNumber: 1,
-    PageSize: 200,
-    ProductCode: API_PRODUCT_CODE,
-    Status: [0, 3],
-    OnlyValidPeriod: true,
-    PackageCodes: API_PACKAGE_CODES,
-  });
-  const resource = summarizeResource(resourceResp);
+  // 3) 积分资源余额：获取全部套餐积分，并汇总 已用/总量/百分比。
+  //    get-user-resource 是低频变化数据且存在 RequestLimitExceeded 限流，
+  //    因此仅在手动刷新时强制更新；自动刷新复用 5 分钟内的缓存；
+  //    接口失败/限流时回退到上次成功缓存，避免进度条数据"消失"。
+  const forceUpdate = options.manual === true;
+  const now = Date.now();
+  let resource;
+  if (!forceUpdate && resourceCache && now - resourceCache.at < RESOURCE_CACHE_TTL) {
+    resource = resourceCache.data;
+  } else {
+    const resourceResp = await callApi(API_GET_USER_RESOURCE, {
+      PageNumber: 1,
+      PageSize: 200,
+      ProductCode: API_PRODUCT_CODE,
+      Status: [0, 3],
+      OnlyValidPeriod: true,
+      PackageCodes: API_PACKAGE_CODES,
+    });
+    const summarized = summarizeResource(resourceResp);
+    // 判定是否有效数据：接口成功且有账户数据；否则视为失败
+    const ok = resourceResp && resourceResp.code === 0 &&
+      Array.isArray(resourceResp.data && resourceResp.data.Response && resourceResp.data.Response.Data &&
+        resourceResp.data.Response.Data.Accounts) &&
+      summarized.packageCount > 0;
+    if (ok) {
+      resource = summarized;
+      resourceCache = { at: now, data: summarized };
+    } else {
+      // 失败/限流：回退到上次成功缓存，保证 UI 数据不消失
+      if (resourceCache) {
+        console.warn('[resource] 接口失败/限流，使用缓存数据:', resourceResp && resourceResp.msg);
+        resource = resourceCache.data;
+      } else {
+        // 无缓存可用：透传原始结果（渲染端会显示占位）
+        resource = summarized;
+      }
+    }
+  }
 
   return { requestUsage, dailyUsage, resource };
 });
