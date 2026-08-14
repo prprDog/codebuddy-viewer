@@ -14,6 +14,7 @@
 #   - 使用已提交的 build/icon.ico 嵌入 exe 图标（无需 Python 环境）
 #   - embed-icon.js 找不到 rcedit 时会自动从 GitHub 下载
 #   - 所有产物同时上传为 workflow artifacts（便于手动触发时预览）
+#   - 打包步骤显式使用 GitHub 官方源（CI 环境无需国内镜像）
 
 name: Build & Release
 
@@ -42,8 +43,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Package win (nsis + portable + dir)
-        run: npx electron-builder --win nsis portable dir
+      # 基础解压版：无需额外工具链，最稳妥；也是后续安装包的基础
+      - name: Package win-unpacked (dir)
+        env:
+          ELECTRON_MIRROR: "https://github.com/electron/electron/releases/download/"
+        run: npx electron-builder --win dir
+
+      # 安装包/便携版：需要下载 NSIS + winCodeSign 工具链
+      - name: Package nsis + portable
+        env:
+          ELECTRON_MIRROR: "https://github.com/electron/electron/releases/download/"
+          ELECTRON_BUILDER_BINARIES_MIRROR: "https://github.com/electron-userland/electron-builder-binaries/releases/download/"
+        run: npx electron-builder --win nsis portable
 
       - name: Embed custom icon into exe
         run: node scripts/embed-icon.js

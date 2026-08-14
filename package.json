@@ -42,9 +42,6 @@
     },
     "portable": {
       "artifactName": "CodeBuddy积分悬浮窗-${version}-portable.${ext}"
-    },
-    "electronDownload": {
-      "mirror": "https://npmmirror.com/mirrors/electron/"
     }
   }
 }
