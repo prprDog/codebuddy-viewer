@@ -62,12 +62,14 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path dist/win-unpacked -DestinationPath dist/codebuddy-viewer-win-unpacked.zip -Force
 
+      # 精确匹配产物文件名，避免 _tmp-app.exe 等临时文件被上传
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dist
           path: |
-            dist/*.exe
+            dist/*-portable.exe
+            dist/*Setup*.exe
             dist/*.zip
           if-no-files-found: error
 
@@ -77,7 +79,8 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            dist/*.exe
+            dist/*-portable.exe
+            dist/*Setup*.exe
             dist/*.zip
           name: CodeBuddy积分悬浮窗 ${{ github.ref_name }}
           body: |

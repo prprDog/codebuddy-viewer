@@ -171,6 +171,16 @@ async function embedIcon(rcedit) {
   }
   if (!copied) throw new Error('替换 exe 失败（多次 EBUSY）');
   console.log('[embed-icon] 已替换:', EXE_PATH);
+
+  // 清理临时文件（避免被 CI 的 dist/*.exe 通配上传到 Release）
+  // 用 fs.rmSync 而非 unlinkSync：rmSync 走统一的删除实现，在 CI（GitHub Runner）与本地均可正常删除
+  try {
+    fs.rmSync(TMP_EXE, { force: true });
+    console.log('[embed-icon] 临时文件已清理:', TMP_EXE);
+  } catch (e) {
+    // 若文件被占用等原因删除失败，记录日志但不中断流程（下次构建会覆盖）
+    console.warn('[embed-icon] 清理临时文件失败:', e.message);
+  }
 }
 
 async function main() {
